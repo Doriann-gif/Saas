@@ -1,6 +1,7 @@
 import { docLink, type DocContext } from "../context";
 import { doc, esc, escLines, h1, h3, link, listJoin, mail, numbered, table, ul } from "../md";
 import type { ThirdPartyService } from "../services";
+import { representativeLabel } from "./shared";
 
 type Activity = {
   title: string;
@@ -200,7 +201,7 @@ export function privacyPolicy(ctx: DocContext): string {
     h2("Who is responsible for your data"),
     `The controller responsible for processing your personal data is:`,
     `${ctx.company}  \n${escLines(p.address)}  \n${esc(country.name)}`,
-    ul([`Email: ${mail(p.email)}`, p.phone && `Phone: ${esc(p.phone)}`, `Represented by: ${esc(p.representative)}`]),
+    ul([`Email: ${mail(p.email)}`, p.phone && `Phone: ${esc(p.phone)}`, `${representativeLabel(ctx)}: ${esc(p.representative)}`]),
     p.dpoContact
       ? `You can reach our Data Protection Officer at: ${esc(p.dpoContact)}.`
       : `We are not required to appoint a Data Protection Officer. For any privacy question, contact us at ${mail(p.email)}.`,

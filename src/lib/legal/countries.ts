@@ -43,6 +43,29 @@ export const COUNTRIES: Country[] = [
 
 export const COUNTRY_CODES = COUNTRIES.map((c) => c.code) as [string, ...string[]];
 
+/** Most common company types per country, shown as choices in the wizard. */
+const LEGAL_FORMS: Record<string, string[]> = {
+  AT: ["GmbH", "FlexCo", "OG", "KG", "AG"],
+  BE: ["SRL / BV", "SA / NV", "SC / CV", "SNC / VOF"],
+  CZ: ["s.r.o.", "a.s."],
+  DE: ["GmbH", "UG (haftungsbeschränkt)", "GbR", "OHG", "KG", "AG"],
+  DK: ["ApS", "A/S", "I/S"],
+  ES: ["S.L.", "S.L.U.", "S.A."],
+  FI: ["Oy", "Oyj", "Ky", "Ay"],
+  FR: ["SAS", "SASU", "SARL", "EURL", "SA", "SNC"],
+  IE: ["Ltd", "DAC", "PLC"],
+  IT: ["S.r.l.", "S.r.l.s.", "S.p.A.", "S.n.c.", "S.a.s."],
+  LU: ["SARL", "SARL-S", "SA", "SAS"],
+  NL: ["B.V.", "N.V.", "V.O.F."],
+  PL: ["sp. z o.o.", "S.A.", "sp.j.", "sp.k."],
+  PT: ["Lda.", "Unipessoal Lda.", "S.A."],
+  SE: ["AB", "HB", "KB"],
+};
+
+export function legalFormsFor(code: string): string[] {
+  return LEGAL_FORMS[code] ?? ["Ltd", "LLC", "PLC"];
+}
+
 export function getCountry(code: string): Country {
   const c = COUNTRIES.find((x) => x.code === code);
   if (!c) throw new Error(`Unknown country: ${code}`);

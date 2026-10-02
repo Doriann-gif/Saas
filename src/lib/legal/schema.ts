@@ -3,10 +3,15 @@ import { COUNTRY_CODES } from "./countries";
 import { SERVICES } from "./services";
 
 const text = (max: number) => z.string().trim().max(max).default("");
+
+export const ENTITY_TYPES = ["company", "soleTrader", "notRegistered"] as const;
+export type EntityType = (typeof ENTITY_TYPES)[number];
 const SERVICE_IDS = SERVICES.map((s) => s.id) as [string, ...string[]];
 
 export const profileSchema = z.object({
   // Business identity
+  /** How the business exists legally; drives wording like "Owner" vs "Managing director". */
+  entityType: z.enum(ENTITY_TYPES).default("company"),
   businessName: z.string().trim().min(1, "Required").max(120),
   legalForm: text(60),
   registered: z.boolean().default(true),
@@ -81,6 +86,11 @@ export const EMPTY_PROFILE: ProfileInput = {
   withdrawalUrl: "",
   adrEntity: "",
 };
+
+/** A person (sole trader or not-yet-registered founder) rather than a company with a director. */
+export function isIndividual(p: Profile): boolean {
+  return p.entityType !== "company";
+}
 
 export function sellsToConsumers(p: Profile): boolean {
   return p.audience !== "b2b";

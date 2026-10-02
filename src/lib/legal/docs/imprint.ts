@@ -1,6 +1,6 @@
 import type { DocContext } from "../context";
 import { doc, esc, escLines, h1, h2, mail, ul } from "../md";
-import { consumerDisputeText } from "./shared";
+import { consumerDisputeText, representativeLabel } from "./shared";
 
 export function legalNotice(ctx: DocContext): string {
   const { p, country } = ctx;
@@ -15,7 +15,7 @@ export function legalNotice(ctx: DocContext): string {
     ul([
       p.legalForm && `Legal form: ${esc(p.legalForm)}`,
       p.shareCapital && `Share capital: ${esc(p.shareCapital)}`,
-      `${country.code === "FR" ? "Publication director / legal representative" : "Represented by"}: ${esc(p.representative)}`,
+      `${representativeLabel(ctx)}: ${esc(p.representative)}`,
     ]),
 
     h2("Contact"),

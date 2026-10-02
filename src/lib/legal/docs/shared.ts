@@ -1,5 +1,13 @@
 import type { DocContext } from "../context";
 import { esc, mail } from "../md";
+import { isIndividual } from "../schema";
+
+/** Label for the person behind the business: an owner for individuals, a representative for companies. */
+export function representativeLabel(ctx: DocContext): string {
+  const fr = ctx.country.code === "FR";
+  if (isIndividual(ctx.p)) return fr ? "Owner and publication director" : "Owner";
+  return fr ? "Publication director / legal representative" : "Represented by";
+}
 
 /** Consumer ADR statement; France makes access to a consumer mediator mandatory. */
 export function consumerDisputeText(ctx: DocContext): string {

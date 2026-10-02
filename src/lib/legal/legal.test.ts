@@ -105,6 +105,14 @@ describe("generateDoc", () => {
     }
   });
 
+  it("calls a self-employed person the owner, and a company's director its representative", () => {
+    const solo = parse({ entityType: "soleTrader", legalForm: "" });
+    expect(generateDoc("imprint", solo, opts)).toContain("Owner: Jane Doe");
+    expect(generateDoc("privacy", solo, opts)).toContain("Owner: Jane Doe");
+    expect(generateDoc("imprint", parse(), opts)).toContain("Represented by: Jane Doe");
+    expect(generateDoc("imprint", parse({ entityType: "notRegistered", registered: false }), opts)).toContain("not yet entered in a commercial register");
+  });
+
   it("never shows a date before the template version", () => {
     expect(generateDoc("privacy", parse(), { updatedAt: new Date("2020-01-01") })).toContain("1 October 2026");
   });

@@ -5,7 +5,8 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import { DocView } from "@/components/doc-view";
 import { applicableDocs, EMPTY_PROFILE, generateDoc, profileSchema, type DocId, type ProfileInput } from "@/lib/legal";
 import { complianceChecklist } from "@/lib/legal/checklist";
-import { COUNTRIES } from "@/lib/legal/countries";
+import { COUNTRIES, legalFormsFor } from "@/lib/legal/countries";
+import type { EntityType } from "@/lib/legal/schema";
 import { markdownToHtml } from "@/lib/legal/render";
 import { SERVICE_GROUP_LABELS, SERVICES, type ServiceGroup } from "@/lib/legal/services";
 
@@ -15,28 +16,46 @@ type Features = ProfileInput["features"];
 type SaveState = { error?: string } | undefined;
 
 const STEPS = [
-  { title: "Your business", fields: ["businessName", "legalForm", "registered", "registerName", "registrationNumber", "vatId", "shareCapital", "representative", "country", "address", "email", "phone"] },
+  { title: "Your business", fields: ["entityType", "businessName", "legalForm", "registered", "registerName", "registrationNumber", "vatId", "shareCapital", "representative", "country", "address", "email", "phone"] },
   { title: "Your website", fields: ["websiteUrl", "hostingProvider", "audience", "microEnterprise", "features"] },
   { title: "Tools you use", fields: ["services"] },
   { title: "Final details", fields: ["withdrawalUrl", "adrEntity", "dpoContact"] },
 ] as const;
 
-const FEATURES: { key: keyof Features; label: string; hint: string }[] = [
-  { key: "contactForm", label: "Contact form", hint: "Visitors can send you messages" },
-  { key: "accounts", label: "User accounts", hint: "People sign up and log in" },
-  { key: "newsletter", label: "Newsletter", hint: "You collect emails for marketing" },
-  { key: "payments", label: "Online payments", hint: "You take payments on the site" },
-  { key: "subscriptions", label: "Subscriptions", hint: "Recurring billing (SaaS, memberships)" },
-  { key: "physicalGoods", label: "Physical products", hint: "You ship goods" },
-  { key: "digitalProducts", label: "Digital products", hint: "Downloads, courses, licences" },
-  { key: "userContent", label: "User content", hint: "Users post reviews, files, comments" },
+const ENTITY_CHOICES: { value: EntityType; title: string; body: string }[] = [
+  { value: "notRegistered", title: "Not registered yet", body: "I'm still setting up my business." },
+  { value: "soleTrader", title: "Self-employed", body: "Freelancer, sole trader or micro-entrepreneur. No separate company." },
+  { value: "company", title: "A company", body: "A registered company, e.g. a Ltd, GmbH, SARL or BV." },
 ];
 
+const AUDIENCES = [
+  { value: "b2c", title: "Private individuals", body: "Consumers (B2C)" },
+  { value: "b2b", title: "Other businesses only", body: "Companies and freelancers (B2B)" },
+  { value: "both", title: "Both", body: "Individuals and businesses" },
+] as const;
+
+const FEATURES: { key: keyof Features; label: string; hint: string }[] = [
+  { key: "contactForm", label: "Send you a message", hint: "There's a contact form on the site" },
+  { key: "accounts", label: "Create an account", hint: "Visitors sign up and log in" },
+  { key: "newsletter", label: "Sign up for a newsletter", hint: "You collect emails to send news or offers" },
+  { key: "payments", label: "Pay online", hint: "Customers pay you on the website (card, PayPal…)" },
+  { key: "subscriptions", label: "Pay monthly or yearly", hint: "Recurring payments: software, memberships, coaching…" },
+  { key: "physicalGoods", label: "Buy physical products", hint: "You sell items that get shipped" },
+  { key: "digitalProducts", label: "Buy digital products", hint: "Downloads, online courses, e-books, licences" },
+  { key: "userContent", label: "Post their own content", hint: "Reviews, comments, photos or files" },
+];
+
+const OTHER_FORM = "__other";
+
 function errorsFor(input: ProfileInput, step: number): Record<string, string> {
-  const result = profileSchema.safeParse(input);
-  if (result.success) return {};
-  const fields = STEPS[step].fields as readonly string[];
   const out: Record<string, string> = {};
+  if (step === 0) {
+    if (!input.entityType) out.entityType = "Choose the option that fits you";
+    if (input.entityType === "company" && !input.legalForm?.trim()) out.legalForm = "Choose your company type";
+  }
+  const result = profileSchema.safeParse(input);
+  if (result.success) return out;
+  const fields = STEPS[step].fields as readonly string[];
   for (const issue of result.error.issues) {
     const key = String(issue.path[0]);
     if (fields.includes(key) && !out[key]) out[key] = issue.message;
@@ -71,6 +90,7 @@ export function Wizard({
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [done, setDone] = useState(false);
+  const [customForm, setCustomForm] = useState(false);
   const [state, formAction, pending] = useActionState<SaveState, FormData>(action ?? (async () => undefined), undefined);
 
   // Restore and persist the draft so visitors can preview first, sign up, then save without retyping.
@@ -89,7 +109,17 @@ export function Wizard({
     } catch {}
   }, [data, mode]);
 
-  const set = <K extends keyof ProfileInput>(key: K, value: ProfileInput[K]) => setData((d) => ({ ...d, [key]: value }));
+  const clearError = (key: string) =>
+    setErrors((e) => {
+      if (!(key in e)) return e;
+      const rest = { ...e };
+      delete rest[key];
+      return rest;
+    });
+  const set = <K extends keyof ProfileInput>(key: K, value: ProfileInput[K]) => {
+    setData((d) => ({ ...d, [key]: value }));
+    clearError(key);
+  };
   const setFeature = (key: keyof Features, value: boolean) => setData((d) => ({ ...d, features: { ...d.features, [key]: value } }));
   const toggleService = (id: string) =>
     setData((d) => {
@@ -117,6 +147,21 @@ export function Wizard({
   const f = data.features;
   const selling = f.payments || f.subscriptions || f.physicalGoods || f.digitalProducts;
   const last = step === STEPS.length - 1;
+  const isCompany = data.entityType === "company";
+  const forms = legalFormsFor(data.country ?? "");
+  const showCustomForm = customForm || (!!data.legalForm && !forms.includes(data.legalForm));
+
+  const chooseEntity = (value: EntityType) => {
+    clearError("entityType");
+    setData((d) => ({
+      ...d,
+      entityType: value,
+      registered: value !== "notRegistered",
+      // A company type like "GmbH" makes no sense for a person; start clean when switching.
+      legalForm: value === d.entityType ? d.legalForm : "",
+      shareCapital: value === "company" ? d.shareCapital : "",
+    }));
+  };
 
   return (
     <div>
@@ -139,91 +184,164 @@ export function Wizard({
       <div className="mt-6 space-y-5">
         {step === 0 && (
           <>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Business name" error={errors.businessName}>
-                <input className={inputCls} value={data.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Acme" />
-              </Field>
-              <Field label="Legal form" hint="e.g. GmbH, SAS, BV, sole trader">
-                <input className={inputCls} value={data.legalForm} onChange={(e) => set("legalForm", e.target.value)} />
-              </Field>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Country of establishment" error={errors.country}>
-                <select className={inputCls} value={data.country} onChange={(e) => set("country", e.target.value)}>
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Owner / managing director" error={errors.representative}>
-                <input className={inputCls} value={data.representative} onChange={(e) => set("representative", e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Business address" error={errors.address}>
-              <textarea className={inputCls} rows={3} value={data.address} onChange={(e) => set("address", e.target.value)} placeholder={"1 Example Street\n10115 Berlin"} />
-            </Field>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Contact email" error={errors.email}>
-                <input className={inputCls} type="email" value={data.email} onChange={(e) => set("email", e.target.value)} />
-              </Field>
-              <Field label="Phone" hint="Required for the imprint in Germany and Austria">
-                <input className={inputCls} value={data.phone} onChange={(e) => set("phone", e.target.value)} />
-              </Field>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={!data.registered} onChange={(e) => set("registered", !e.target.checked)} className="h-4 w-4" />
-              My business isn&apos;t registered yet
-            </label>
-            {data.registered && (
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Register" hint="e.g. Amtsgericht Berlin, RCS Paris, KvK">
-                  <input className={inputCls} value={data.registerName} onChange={(e) => set("registerName", e.target.value)} />
-                </Field>
-                <Field label="Registration number">
-                  <input className={inputCls} value={data.registrationNumber} onChange={(e) => set("registrationNumber", e.target.value)} />
-                </Field>
-                <Field label="VAT number" hint="Leave empty if not VAT-registered">
-                  <input className={inputCls} value={data.vatId} onChange={(e) => set("vatId", e.target.value)} />
-                </Field>
-                <Field label="Share capital" hint="Optional, required in some countries (e.g. FR)">
-                  <input className={inputCls} value={data.shareCapital} onChange={(e) => set("shareCapital", e.target.value)} />
-                </Field>
+            <fieldset>
+              <legend className="text-sm font-medium text-slate-800">What best describes you?</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {ENTITY_CHOICES.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => chooseEntity(c.value)}
+                    aria-pressed={data.entityType === c.value}
+                    className={`rounded-xl border p-3 text-left ${data.entityType === c.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 hover:bg-slate-50"}`}
+                  >
+                    <span className="block text-sm font-semibold">{c.title}</span>
+                    <span className={`mt-1 block text-xs ${data.entityType === c.value ? "text-slate-300" : "text-slate-500"}`}>{c.body}</span>
+                  </button>
+                ))}
               </div>
+              {errors.entityType && <span className="mt-1 block text-xs text-red-600">{errors.entityType}</span>}
+            </fieldset>
+
+            {data.entityType && (
+              <>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Country where the business is based" error={errors.country}>
+                    <select className={inputCls} value={data.country} onChange={(e) => set("country", e.target.value)}>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field
+                    label={isCompany ? "Company name" : "Business or brand name"}
+                    hint={isCompany ? "As registered, without the company type (\"Acme\", not \"Acme SAS\")" : "The name customers know you by. No brand name? Use your own name."}
+                    error={errors.businessName}
+                  >
+                    <input className={inputCls} value={data.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Acme" />
+                  </Field>
+                </div>
+
+                {isCompany && (
+                  <Field
+                    label="Company type"
+                    hint="The legal structure written after your company name on official papers. This is not your industry or what you sell."
+                    error={errors.legalForm}
+                  >
+                    <select
+                      className={inputCls}
+                      value={showCustomForm ? OTHER_FORM : (data.legalForm ?? "")}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCustomForm(v === OTHER_FORM);
+                        set("legalForm", v === OTHER_FORM ? "" : v);
+                      }}
+                    >
+                      <option value="">Choose…</option>
+                      {forms.map((form) => (
+                        <option key={form} value={form}>
+                          {form}
+                        </option>
+                      ))}
+                      <option value={OTHER_FORM}>Other (type it)</option>
+                    </select>
+                    {showCustomForm && (
+                      <input className={`${inputCls} mt-2`} value={data.legalForm} onChange={(e) => set("legalForm", e.target.value)} placeholder="Your company type" />
+                    )}
+                  </Field>
+                )}
+                {data.entityType === "soleTrader" && data.country === "FR" && (
+                  <Field label="Legal status (optional)" hint={'In France, sole traders must add "EI" (Entrepreneur Individuel) after their name. Type EI if that\'s you.'}>
+                    <input className={inputCls} value={data.legalForm} onChange={(e) => set("legalForm", e.target.value)} placeholder="EI" />
+                  </Field>
+                )}
+
+                <Field
+                  label={isCompany ? "Managing director's full name" : "Your full name"}
+                  hint={
+                    isCompany
+                      ? "The person legally in charge of the company (CEO, director, gérant, Geschäftsführer). If that's you, enter your own name."
+                      : "You run the business yourself, so you're the person legally responsible. Your name appears on the legal notice."
+                  }
+                  error={errors.representative}
+                >
+                  <input className={inputCls} value={data.representative} onChange={(e) => set("representative", e.target.value)} placeholder="Jane Doe" />
+                </Field>
+
+                <Field
+                  label={isCompany ? "Registered company address" : "Business address"}
+                  hint={isCompany ? undefined : "Where you run the business from. Working from home? Your home address, or a business-address service."}
+                  error={errors.address}
+                >
+                  <textarea className={inputCls} rows={3} value={data.address} onChange={(e) => set("address", e.target.value)} placeholder={"1 Example Street\n10115 Berlin"} />
+                </Field>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Email for customers" hint="Shown in your documents so people can reach you" error={errors.email}>
+                    <input className={inputCls} type="email" value={data.email} onChange={(e) => set("email", e.target.value)} />
+                  </Field>
+                  <Field label="Phone number" hint="Required in Germany and Austria, optional elsewhere">
+                    <input className={inputCls} value={data.phone} onChange={(e) => set("phone", e.target.value)} />
+                  </Field>
+                </div>
+
+                {data.registered && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-800">Registration details</p>
+                    <p className="mt-0.5 text-xs text-slate-500">They&apos;re on your registration certificate. Leave empty anything you don&apos;t have; you can add it later.</p>
+                    <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                      <Field label="Where is it registered?" hint="The official register, e.g. RCS Paris (FR), Amtsgericht Berlin (DE), KvK (NL)">
+                        <input className={inputCls} value={data.registerName} onChange={(e) => set("registerName", e.target.value)} />
+                      </Field>
+                      <Field label="Registration number" hint="e.g. SIREN (FR), HRB 12345 (DE), KvK number (NL)">
+                        <input className={inputCls} value={data.registrationNumber} onChange={(e) => set("registrationNumber", e.target.value)} />
+                      </Field>
+                      <Field label="VAT number" hint="Starts with your country code, e.g. FR12345678901. Empty if you don't charge VAT.">
+                        <input className={inputCls} value={data.vatId} onChange={(e) => set("vatId", e.target.value)} />
+                      </Field>
+                      {isCompany && (
+                        <Field label="Share capital" hint="The amount the company was founded with, e.g. €1,000. Required in France.">
+                          <input className={inputCls} value={data.shareCapital} onChange={(e) => set("shareCapital", e.target.value)} />
+                        </Field>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
 
         {step === 1 && (
           <>
-            <Field label="Website URL" error={errors.websiteUrl}>
+            <Field label="Your website address" hint="No website yet? Enter the domain you plan to use." error={errors.websiteUrl}>
               <input className={inputCls} value={data.websiteUrl} onChange={(e) => set("websiteUrl", e.target.value)} placeholder="https://example.com" />
             </Field>
-            <Field label="Hosting provider" hint="Name and address. Mandatory in France (e.g. Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, USA)">
+            <Field
+              label="Who hosts your website?"
+              hint="The service your site runs on, e.g. Shopify, Wix, Squarespace, WordPress.com, OVH. Add its address if you know it (required in France)."
+            >
               <input className={inputCls} value={data.hostingProvider} onChange={(e) => set("hostingProvider", e.target.value)} />
             </Field>
-            <Field label="Who are your customers?">
-              <div className="grid gap-2 sm:grid-cols-3">
-                {(
-                  [
-                    ["b2c", "Consumers"],
-                    ["b2b", "Businesses only"],
-                    ["both", "Both"],
-                  ] as const
-                ).map(([v, l]) => (
+            <fieldset>
+              <legend className="text-sm font-medium text-slate-800">Who buys from you?</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {AUDIENCES.map((a) => (
                   <button
-                    key={v}
+                    key={a.value}
                     type="button"
-                    onClick={() => set("audience", v)}
-                    className={`rounded-lg border px-3 py-2 text-sm ${data.audience === v ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 hover:bg-slate-50"}`}
+                    onClick={() => set("audience", a.value)}
+                    aria-pressed={data.audience === a.value}
+                    className={`rounded-xl border p-3 text-left ${data.audience === a.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 hover:bg-slate-50"}`}
                   >
-                    {l}
+                    <span className="block text-sm font-semibold">{a.title}</span>
+                    <span className={`mt-0.5 block text-xs ${data.audience === a.value ? "text-slate-300" : "text-slate-500"}`}>{a.body}</span>
                   </button>
                 ))}
               </div>
-            </Field>
-            <Field label="What does your website do?">
+            </fieldset>
+            <Field label="On your website, visitors can…" hint="Tick everything that applies. Just a simple showcase website? Tick only the first one, or nothing.">
               <div className="grid gap-2 sm:grid-cols-2">
                 {FEATURES.map((x) => (
                   <label key={x.key} className={`flex cursor-pointer gap-3 rounded-lg border p-3 ${f[x.key] ? "border-slate-900 bg-slate-50" : "border-slate-200"}`}>
@@ -239,8 +357,8 @@ export function Wizard({
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-0.5 h-4 w-4" checked={data.microEnterprise ?? true} onChange={(e) => set("microEnterprise", e.target.checked)} />
               <span>
-                Fewer than 10 employees and under €2M turnover
-                <span className="block text-xs text-slate-500">Micro-enterprises are exempt from parts of the European Accessibility Act.</span>
+                Small business: fewer than 10 people and under €2M revenue per year
+                <span className="block text-xs text-slate-500">Very small businesses are exempt from parts of the European Accessibility Act. Leave ticked if unsure.</span>
               </span>
             </label>
           </>
@@ -248,7 +366,10 @@ export function Wizard({
 
         {step === 2 && (
           <>
-            <p className="text-sm text-slate-600">Tick every third-party tool on your website. They are listed in your privacy and cookie policies, and the banner blocks them until consent.</p>
+            <p className="text-sm text-slate-600">
+              Tick the outside services your website uses. They get listed in your privacy and cookie policies, and the cookie banner blocks them until
+              visitors agree. Not sure or none? Just continue; you can change this later.
+            </p>
             {(Object.keys(SERVICE_GROUP_LABELS) as ServiceGroup[]).map((g) => (
               <fieldset key={g}>
                 <legend className="text-sm font-semibold text-slate-800">{SERVICE_GROUP_LABELS[g]}</legend>
@@ -277,19 +398,22 @@ export function Wizard({
           <>
             {selling && data.audience !== "b2b" && (
               <Field
-                label="URL of your “Withdraw from contract here” page"
-                hint="Mandatory for online sales to consumers since 19 June 2026. Leave empty if you haven't built it yet: your checklist will remind you."
+                label="Link to your “Withdraw from contract” button"
+                hint="Since June 2026, EU online sellers must let customers cancel a purchase with one button. Paste the link if you have one. If not, leave it empty and we'll remind you."
                 error={errors.withdrawalUrl}
               >
                 <input className={inputCls} value={data.withdrawalUrl} onChange={(e) => set("withdrawalUrl", e.target.value)} placeholder="https://example.com/withdraw" />
               </Field>
             )}
             {data.audience !== "b2b" && (
-              <Field label="Consumer mediator / ADR body" hint="Mandatory in France. Optional elsewhere. Name and website.">
-                <input className={inputCls} value={data.adrEntity} onChange={(e) => set("adrEntity", e.target.value)} />
+              <Field
+                label="Consumer mediator"
+                hint="An independent service customers can turn to if you disagree, e.g. CM2C or Medicys in France. Mandatory in France, optional elsewhere. Leave empty if you don't have one."
+              >
+                <input className={inputCls} value={data.adrEntity} onChange={(e) => set("adrEntity", e.target.value)} placeholder="Name and website" />
               </Field>
             )}
-            <Field label="Data Protection Officer contact" hint="Only if you have appointed one">
+            <Field label="Data protection officer (DPO)" hint="Most small businesses don't have one. Leave empty unless you officially appointed one.">
               <input className={inputCls} value={data.dpoContact} onChange={(e) => set("dpoContact", e.target.value)} />
             </Field>
           </>
