@@ -29,6 +29,11 @@ GDPR legal pages + cookie banner for small EU businesses and startups (including
 
 Local webhooks: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
 
+## Deployment
+
+Netlify (`netlify.toml`, `@netlify/plugin-nextjs`). Production: https://clausely-tf37.netlify.app,
+Supabase project `clausely` (eu-central-1). Env vars live in Netlify → Project configuration → Environment variables.
+
 ## Scripts
 
 - `npm test`: generator tests (applicability, country rules, XSS escaping, section numbering)

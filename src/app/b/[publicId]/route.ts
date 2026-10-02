@@ -19,7 +19,14 @@ function js(body: string, maxAge: number) {
 
 export async function GET(_: Request, { params }: RouteContext<"/b/[publicId]">) {
   const { publicId } = await params;
-  const found = await getPublishedProject(publicId.replace(/\.js$/, ""));
+  let found: Awaited<ReturnType<typeof getPublishedProject>>;
+  try {
+    found = await getPublishedProject(publicId.replace(/\.js$/, ""));
+  } catch (err) {
+    // This script runs on customers' sites: never break their page with a 500.
+    console.error("[banner] lookup failed", err);
+    return js(inactiveScript("temporarily unavailable"), 30);
+  }
   if (!found) return js(inactiveScript("unknown site id"), 60);
   const ent = ENTITLEMENTS[found.plan];
   if (!ent.publish) return js(inactiveScript("no active subscription"), 60);

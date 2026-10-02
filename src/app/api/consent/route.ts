@@ -25,17 +25,23 @@ export async function POST(request: Request) {
   }
   if (!parsed.success) return new Response(null, { status: 400, headers: CORS });
 
-  const found = await getPublishedProject(parsed.data.p);
-  if (!found || !ENTITLEMENTS[found.plan].consentLog) return new Response(null, { status: 204, headers: CORS });
+  try {
+    const found = await getPublishedProject(parsed.data.p);
+    if (!found || !ENTITLEMENTS[found.plan].consentLog) return new Response(null, { status: 204, headers: CORS });
 
-  await createSupabaseAdminClient()
-    .from("consent_logs")
-    .insert({
-      project_id: found.project.id,
-      consent_id: parsed.data.id,
-      choices: parsed.data.c,
-      config_version: parsed.data.v,
-      user_agent: request.headers.get("user-agent")?.slice(0, 300) ?? null,
-    });
+    const { error } = await createSupabaseAdminClient()
+      .from("consent_logs")
+      .insert({
+        project_id: found.project.id,
+        consent_id: parsed.data.id,
+        choices: parsed.data.c,
+        config_version: parsed.data.v,
+        user_agent: request.headers.get("user-agent")?.slice(0, 300) ?? null,
+      });
+    if (error) throw error;
+  } catch (err) {
+    console.error("[consent] insert failed", err);
+    return new Response(null, { status: 503, headers: CORS });
+  }
   return new Response(null, { status: 204, headers: CORS });
 }
