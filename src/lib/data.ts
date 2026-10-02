@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { cache } from "react";
 import { profileSchema, type Profile } from "@/lib/legal";
-import { effectivePlan, type PlanId } from "@/lib/plans";
+import { effectivePlan, ENTITLEMENTS, type PlanId } from "@/lib/plans";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type Project = {
@@ -79,7 +79,17 @@ export const getPublishedProject = cache(async (publicId: string): Promise<{ pro
   const project = data ? parseProject(data) : null;
   if (!project) return null;
   const { data: sub } = await admin.from("subscriptions").select("plan,status").eq("user_id", project.user_id).maybeSingle();
-  return { project, plan: effectivePlan(sub) };
+  const plan = effectivePlan(sub);
+
+  // After a downgrade, only the owner's oldest sites within the plan's allowance stay live.
+  const { data: live } = await admin
+    .from("projects")
+    .select("id")
+    .eq("user_id", project.user_id)
+    .order("created_at")
+    .limit(ENTITLEMENTS[plan].sites);
+  const withinAllowance = (live ?? []).some((r) => r.id === project.id);
+  return { project, plan: withinAllowance ? plan : "free" };
 });
 
 export function newPublicId(): string {

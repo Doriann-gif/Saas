@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { appUrl } from "@/lib/brand";
+import { appUrl, BRAND } from "@/lib/brand";
 import { getPlan, getProjects, getSubscription, getUser, newPublicId } from "@/lib/data";
 import { profileSchema } from "@/lib/legal";
 import { ENTITLEMENTS, priceIdFor, type Interval, type PaidPlanId } from "@/lib/plans";
@@ -94,6 +94,8 @@ export async function startCheckout(formData: FormData) {
     billing_address_collection: "required",
     tax_id_collection: { enabled: true },
     automatic_tax: { enabled: process.env.STRIPE_AUTOMATIC_TAX === "true" },
+    // Show our brand even when the Stripe account's public name is different.
+    branding_settings: { display_name: BRAND.name },
     success_url: `${appUrl()}/dashboard?checkout=success`,
     cancel_url: `${appUrl()}/dashboard?checkout=cancelled`,
   });
@@ -108,6 +110,8 @@ export async function openBillingPortal() {
   const portal = await stripe().billingPortal.sessions.create({
     customer: sub.stripe_customer_id,
     return_url: `${appUrl()}/dashboard`,
+    // Pinned so a shared Stripe account changing its default portal can't affect us.
+    ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}),
   });
   redirect(portal.url);
 }
